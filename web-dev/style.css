@@ -4,3 +4,33 @@ body {
     background: #FAFAFA;
     font-family: Helvetica;
 }
+
+img {
+    width: 50px;
+    height: 40px;
+}
+
+table {
+    table-layout: fixed;
+    width: 100%;
+    border-collapse: collapse;
+    border: 3px solid #ddd;
+}
+
+tr {
+    border-bottom: 1px solid #ddd;
+}
+
+tr:hover {
+    background-color: lavenderblush;
+}
+
+th {
+    background-color: lavenderblush;
+}
+
+th,
+td {
+    padding: 10px;
+    border-right: 1px solid #ddd;
+}
