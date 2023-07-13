@@ -44,12 +44,63 @@ let print_links_command =
    a DOT file. It should use the [how_to_fetch] argument along with
    [File_fetcher] to fetch the articles so that the implementation can be
    tested locally on the small dataset in the ../resources/wiki directory. *)
+
+module G = Graph.Imperative.Graph.Concrete (String)
+
+module Dot = Graph.Graphviz.Dot (struct
+  include G
+
+  let edge_attributes _ = [ `Dir `Back ]
+  let default_edge_attributes _ = []
+  let get_subgraph _ = None
+  let vertex_attributes v = [ `Shape `Box; `Label v; `Fillcolor 1000 ]
+  let vertex_name v = v
+  let default_vertex_attributes _ = []
+  let graph_attributes _ = []
+end)
+
+let get_linked_articles_wrapper ~node ~how_to_fetch =
+  let abs_url =
+    match how_to_fetch with
+    | File_fetcher.How_to_fetch.Local _ -> node
+    | Remote -> "https://en.wikipedia.org" ^ node
+  in
+  print_s [%message abs_url];
+  let contents = File_fetcher.fetch_exn how_to_fetch ~resource:abs_url in
+  print_s [%message (get_linked_articles contents : string list)];
+  get_linked_articles contents
+;;
+
+let chop_article article =
+  Str.global_replace (Str.regexp {|/|}) "" article
+  |> Str.global_replace (Str.regexp {|wiki|}) ""
+  |> Str.global_replace (Str.regexp {|(|}) ""
+  |> Str.global_replace (Str.regexp {|)|}) ""
+;;
+
+let rec dfs ~graph ~node ~visited ~depth ~how_to_fetch =
+  let visited = Set.add visited node in
+  print_s [%message (node : string)];
+  if depth >= 0
+  then
+    List.fold
+      (get_linked_articles_wrapper ~node ~how_to_fetch)
+      ~init:visited
+      ~f:(fun acc v ->
+      G.add_edge graph (chop_article node) (chop_article v);
+      if not (Set.mem visited v)
+      then dfs ~graph ~node:v ~visited:acc ~depth:(depth - 1) ~how_to_fetch
+      else acc)
+  else visited
+;;
+
 let visualize ?(max_depth = 3) ~origin ~output_file ~how_to_fetch () : unit =
-  ignore (max_depth : int);
-  ignore (origin : string);
-  ignore (output_file : File_path.t);
-  ignore (how_to_fetch : File_fetcher.How_to_fetch.t);
-  failwith "TODO"
+  let graph = G.create () in
+  let visited = String.Set.of_list [] in
+  let _ = dfs ~graph ~node:origin ~visited ~depth:max_depth ~how_to_fetch in
+  Dot.output_graph
+    (Out_channel.create (File_path.to_string output_file))
+    graph
 ;;
 
 let visualize_command =
