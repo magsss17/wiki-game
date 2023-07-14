@@ -65,9 +65,7 @@ let get_linked_articles_wrapper ~node ~how_to_fetch =
     | File_fetcher.How_to_fetch.Local _ -> node
     | Remote -> "https://en.wikipedia.org" ^ node
   in
-  print_s [%message abs_url];
   let contents = File_fetcher.fetch_exn how_to_fetch ~resource:abs_url in
-  print_s [%message (get_linked_articles contents : string list)];
   get_linked_articles contents
 ;;
 
@@ -78,9 +76,12 @@ let chop_article article =
   |> Str.global_replace (Str.regexp {|)|}) ""
 ;;
 
-let rec dfs ~graph ~node ~visited ~depth ~how_to_fetch =
+let chop_articles articles : string list =
+  List.map articles ~f:(fun article -> chop_article article)
+;;
+
+let rec create_graph ~graph ~node ~visited ~depth ~how_to_fetch =
   let visited = Set.add visited node in
-  print_s [%message (node : string)];
   if depth >= 0
   then
     List.fold
@@ -89,7 +90,13 @@ let rec dfs ~graph ~node ~visited ~depth ~how_to_fetch =
       ~f:(fun acc v ->
       G.add_edge graph (chop_article node) (chop_article v);
       if not (Set.mem visited v)
-      then dfs ~graph ~node:v ~visited:acc ~depth:(depth - 1) ~how_to_fetch
+      then
+        create_graph
+          ~graph
+          ~node:v
+          ~visited:acc
+          ~depth:(depth - 1)
+          ~how_to_fetch
       else acc)
   else visited
 ;;
@@ -97,7 +104,9 @@ let rec dfs ~graph ~node ~visited ~depth ~how_to_fetch =
 let visualize ?(max_depth = 3) ~origin ~output_file ~how_to_fetch () : unit =
   let graph = G.create () in
   let visited = String.Set.of_list [] in
-  let _ = dfs ~graph ~node:origin ~visited ~depth:max_depth ~how_to_fetch in
+  let _ =
+    create_graph ~graph ~node:origin ~visited ~depth:max_depth ~how_to_fetch
+  in
   Dot.output_graph
     (Out_channel.create (File_path.to_string output_file))
     graph
@@ -137,12 +146,51 @@ let visualize_command =
 
    [max_depth] is useful to limit the time the program spends exploring the
    graph. *)
+
+let bfs start_node depth end_node ~how_to_fetch =
+  let visited = String.Set.of_list [] in
+  let parent = String.Map.empty in
+  let rec traverse ~to_visit ~visited ~parent ~depth =
+    match depth, to_visit with
+    | 0, _ | _, [] -> None
+    | _, hd :: tl ->
+      if not (Set.mem visited hd)
+      then
+        if String.equal hd end_node
+        then Some parent
+        else (
+          let visited = Set.add visited hd in
+          let children =
+            get_linked_articles_wrapper ~how_to_fetch ~node:hd
+          in
+          let parent =
+            List.fold children ~init:parent ~f:(fun acc child ->
+              if not (Map.mem acc child)
+              then Map.add_exn acc ~key:child ~data:hd
+              else acc)
+          in
+          traverse ~to_visit:(tl @ children) ~visited ~parent ~depth)
+      else traverse ~to_visit:tl ~visited ~parent ~depth
+  in
+  traverse ~to_visit:[ start_node ] ~visited ~parent ~depth
+;;
+
+let backtrack_map map start dest : string list =
+  let rec helper curr_node list =
+    if String.equal curr_node start
+    then chop_articles (curr_node :: list)
+    else helper (Map.find_exn map curr_node) (curr_node :: list)
+  in
+  helper dest []
+;;
+
 let find_path ?(max_depth = 3) ~origin ~destination ~how_to_fetch () =
-  ignore (max_depth : int);
-  ignore (origin : string);
-  ignore (destination : string);
-  ignore (how_to_fetch : File_fetcher.How_to_fetch.t);
-  failwith "TODO"
+  let origin' = String.drop_prefix origin 24 in
+  let destination' = String.drop_prefix destination 24 in
+  let parent_map = bfs origin' max_depth destination' ~how_to_fetch in
+  match parent_map with
+  | None -> None
+  | Some map -> Some (backtrack_map map origin' destination')
 ;;
 
 let find_path_command =
